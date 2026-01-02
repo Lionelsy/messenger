@@ -26,6 +26,8 @@ if [[ ! -x "$PY" ]]; then
   exit 1
 fi
 
+set -a; source .env; set +a
+
 "$PY" -V
 "$PY" -c "import sys; print('[INFO] exe:', sys.executable)"
 
