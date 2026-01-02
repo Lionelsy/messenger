@@ -1,0 +1,25 @@
+3D Vision:
+  3D Object Detection: '"3D Object Detection" OR "Point Cloud Object Detection" OR "3D Object Detector"'
+  Point Cloud: '"Point Cloud" OR "3D Point Cloud"'
+  Point Cloud Completion: '"Point Cloud Completion"'
+  Point Cloud Segmentation: '"Point Cloud Segmentation"'
+  Point Cloud Registration: '"Point Cloud Registration" OR "Point Cloud Matching"'
+
+Deep Learning:
+  Few-shot & Meta Learning: '"Few-shot Learning" OR "One-shot Learning" OR "Meta-Learning"'
+  Contrastive & Self-Supervised Learning: '"Contrastive Learning" OR "Self-supervised Learning"'
+  Graph Neural Networks: '"Graph Neural Network" OR "GNN"'
+  Representation Learning: '"Representation Learning"'
+  Transfer & Unsupervised Learning: '"Transfer Learning" OR "Unsupervised Learning"'
+  Foundation & Large Models: '"Foundation Models" OR "Large Vision Models" OR "Multimodal Foundation Models" OR "Pretrained Transformers"'
+
+Spatiotemporal & Spatial Intelligence:
+  Spatial Understanding: '"Spatial Understanding" OR "Scene Understanding" OR "3D Scene Graph" OR "Geometric Reasoning"'
+  Temporal Modeling: '"Temporal Modeling" OR "Temporal Reasoning" OR "Video Understanding"'
+  Spatiotemporal Learning: '"Spatiotemporal Learning" OR "Spatiotemporal Representation Learning" OR "4D Perception"'
+  Motion Prediction: '"Trajectory Forecasting" OR "Motion Prediction" OR "Behavior Prediction"'
+
+Applications in Smart Cities:
+  Urban Perception & Monitoring: '"Urban Sensing" OR "Urban Perception" OR "City-scale Sensing"'
+  Multimodal City Modeling: '"Multimodal Urban Data" OR "City-scale Multimodal Fusion"'
+  Digital Twin & City Simulation: '"Digital Twin City" OR "Urban Simulation" OR "Urban Digital Twin"'
