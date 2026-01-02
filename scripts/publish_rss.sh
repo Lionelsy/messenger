@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 SRC_RSS="${ROOT_DIR}/arxiv.rss"
-DEST_DIR="${ROOT_DIR}/Messager"
+DEST_DIR="${ROOT_DIR}/messenger"
 DEST_RSS="${DEST_DIR}/arxiv.rss"
 
 if [[ ! -f "${SRC_RSS}" ]]; then

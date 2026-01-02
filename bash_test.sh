@@ -32,5 +32,6 @@ run_step "analyze_02_parse"         python pipeline/analyze_02_parse.py
 run_step "analyze_03_deep"          python pipeline/analyze_03_deep.py
 run_step "publish_add_new_items"    python pipeline/publish_add_new_items.py
 run_step "publish_delete_old_items" python pipeline/publish_delete_old_items.py
+run_step "publish_rss"              bash scripts/publish_rss.sh
 
 echo -e "\n[END] $(date -Is)" | tee -a "$LOG_FILE"
