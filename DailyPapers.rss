@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<rss version="2.0"><channel><title>Arxiv论文推荐</title><link>https://arxiv.org/</link><description><![CDATA[Arxiv论文推荐（自动生成）]]></description><language>zh-CN</language><lastBuildDate>Mon, 05 Jan 2026 13:38:03 +0800</lastBuildDate><item><guid>2307.02397v2</guid><title>Route planning of mobile sensing fleets for repeatable visits</title><link>http://arxiv.org/abs/2307.02397v2</link><author>Wen Ji, Ke Han, Qian Ge</author><pubDate>Mon, 05 Jan 2026 13:38:03 +0800</pubDate><description><![CDATA[<h3>GPT 基础摘要</h3>
+<rss version="2.0"><channel><title>Arxiv论文推荐</title><link>https://arxiv.org/</link><description><![CDATA[Arxiv论文推荐]]></description><language>zh-CN</language><lastBuildDate>Mon, 05 Jan 2026 13:38:03 +0800</lastBuildDate><item><guid>2307.02397v2</guid><title>Route planning of mobile sensing fleets for repeatable visits</title><link>http://arxiv.org/abs/2307.02397v2</link><author>Wen Ji, Ke Han, Qian Ge</author><pubDate>Mon, 05 Jan 2026 13:38:03 +0800</pubDate><description><![CDATA[<h3>GPT 基础摘要</h3>
 <p><strong>总结:</strong> 本文研究利用车辆移动进行城市数据采集的移动感知方法，提出一种开放团队路线规划问题，并给出一种适配的搜索算法。</p>
 <p><strong>背景:</strong> 城市感知需要在低成本下对特定地点进行多次监测，传统方法缺乏针对性。</p>
 <p><strong>目的:</strong> 提出开放团队可重复访问的路线规划模型，并设计高效求解算法。</p>
