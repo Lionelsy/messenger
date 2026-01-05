@@ -122,7 +122,7 @@ def _load_deep_json(deep_path: Path) -> Dict[str, Any]:
     return json.loads(deep_path.read_text(encoding="utf-8"))
 
 
-def _build_description_html(base: Dict[str, Any], deep: Dict[str, Any]) -> str:
+def _build_description_html(base: Dict[str, Any], deep: Dict[str, Any], is_relevant: bool) -> str:
     fetched = base.get("fetched") or {}
     analysis = base.get("analysis") or {}
     gpt_summary = (analysis.get("gpt_summary") or {}) if isinstance(analysis, dict) else {}
@@ -133,8 +133,13 @@ def _build_description_html(base: Dict[str, Any], deep: Dict[str, Any]) -> str:
     abstract = _clean_string(fetched.get("abstract"))
 
     deep_understanding = deep.get("deep_understanding") or {}
+    has_deep = isinstance(deep_understanding, dict) and bool(deep_understanding)
 
     parts: list[str] = []
+
+    # 对“已做深度解读且与研究主题相关”的条目加醒目标记
+    if has_deep and is_relevant:
+        parts.append("<p>⭐ 与研究主题相关</p>")
     # GPT 基础摘要
     if isinstance(gpt_summary, dict) and gpt_summary:
         parts.append("<h3>GPT 基础摘要</h3>")
@@ -144,7 +149,7 @@ def _build_description_html(base: Dict[str, Any], deep: Dict[str, Any]) -> str:
             )
 
     # 深度解读
-    if isinstance(deep_understanding, dict) and deep_understanding:
+    if has_deep:
         parts.append("<h3>深度解读</h3>")
         for k, v in deep_understanding.items():
             parts.append(
@@ -158,7 +163,14 @@ def _build_description_html(base: Dict[str, Any], deep: Dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
-def _add_item(channel: ET.Element, paper_id: str, base: Dict[str, Any], deep: Dict[str, Any], run_dt: datetime) -> None:
+def _add_item(
+    channel: ET.Element,
+    paper_id: str,
+    base: Dict[str, Any],
+    deep: Dict[str, Any],
+    run_dt: datetime,
+    is_relevant: bool,
+) -> None:
     fetched = base.get("fetched") or {}
     title = _clean_string(fetched.get("title") or paper_id)
     link = _clean_string(fetched.get("arxiv_url") or fetched.get("pdf_url") or "")
@@ -178,7 +190,7 @@ def _add_item(channel: ET.Element, paper_id: str, base: Dict[str, Any], deep: Di
     ET.SubElement(item, "pubDate").text = _rfc2822(run_dt)
 
     # 先写成普通文本（ElementTree 会自动转义）；最终写文件前会统一改成 CDATA
-    desc = _build_description_html(base, deep)
+    desc = _build_description_html(base, deep, is_relevant=is_relevant)
     ET.SubElement(item, "description").text = desc
 
     # 插入到 channel 开头（紧跟在 metadata 后面）
@@ -199,7 +211,7 @@ def main() -> None:
     ap.add_argument("--rss_file", default="arxiv.rss")
     ap.add_argument("--feed_title", default="Arxiv论文推荐")
     ap.add_argument("--feed_link", default="https://arxiv.org/")
-    ap.add_argument("--feed_description", default="Arxiv论文推荐（自动生成）")
+    ap.add_argument("--feed_description", default="Arxiv论文推荐")
     ap.add_argument("--run_pubdate", default=None, help="统一发布时间（RFC2822），用于与调度器对齐")
     ap.add_argument("--limit", type=int, default=0, help="0 表示不限制；否则只发布前 N 篇")
     ap.add_argument("--dry_run", action="store_true")
@@ -215,13 +227,13 @@ def main() -> None:
         print(f"[WARN] master csv not found or empty: {master_csv}")
         return
 
-    # 筛选：已完成 deep_analysis 且尚未 publish
+    # 筛选：已完成基础分析（或深度分析）且尚未 publish
     todo = []
     for r in rows:
         pid = (r.get("paperID") or "").strip()
         if not pid:
             continue
-        if not _is_true(r.get("deep_analysis", "")):
+        if not (_is_true(r.get("base_analysis", "")) or _is_true(r.get("deep_analysis", ""))):
             continue
         if _is_true(r.get("publish", "")):
             continue
@@ -249,8 +261,7 @@ def main() -> None:
         if not pid or pid in existing_ids:
             continue
         base_path = base_dir / f"{pid}.json"
-        deep_path = deep_dir / f"{pid}.json"
-        if not base_path.exists() or not deep_path.exists():
+        if not base_path.exists():
             continue
         will_publish.append(pid)
 
@@ -268,13 +279,20 @@ def main() -> None:
 
         base_path = base_dir / f"{pid}.json"
         deep_path = deep_dir / f"{pid}.json"
-        if not base_path.exists() or not deep_path.exists():
+        if not base_path.exists():
             continue
 
         base = _load_base_json(base_path)
-        deep = _load_deep_json(deep_path)
+        deep: Dict[str, Any] = {}
+        if deep_path.exists():
+            deep = _load_deep_json(deep_path)
 
-        _add_item(channel, pid, base, deep, run_dt=run_dt)
+        analysis = base.get("analysis") or {}
+        base_is_relevant = bool(analysis.get("is_relevant")) if isinstance(analysis, dict) else False
+        row_is_relevant = _is_true(r.get("relevance", ""))
+        is_relevant = row_is_relevant or base_is_relevant
+
+        _add_item(channel, pid, base, deep, run_dt=run_dt, is_relevant=is_relevant)
         existing_ids.add(pid)
 
         r["publish"] = "True"
