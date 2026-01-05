@@ -2,6 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT"
+
 LOG_DIR="$ROOT/storage/logs"
 mkdir -p "$LOG_DIR"
 
@@ -36,7 +38,7 @@ set -a; source .env; set +a
 "$PY" "$ROOT/pipeline/update_paper_list.py" --date "$DATE_STR"
 
 "$PY" "$ROOT/pipeline/analyze_01_base_pro.py"
-"$PY" "$ROOT/pipeline/analyze_02_parse.py"
+"$PY" "$ROOT/pipeline/analyze_02_parse_pro.py"
 "$PY" "$ROOT/pipeline/analyze_03_deep_pro.py"
 
 "$PY" "$ROOT/pipeline/publish_add_new_items.py" --run_pubdate "$RUN_PUBDATE"

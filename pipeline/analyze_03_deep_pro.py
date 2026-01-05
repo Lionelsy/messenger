@@ -94,7 +94,7 @@ def main() -> None:
     ap.add_argument("--out_dir", default="storage/analysis/deep")
     ap.add_argument("--max_chars", type=int, default=20000)
     ap.add_argument("--sleep", type=float, default=0.1)
-    ap.add_argument("--workers", type=int, default=5, help="并发线程数")
+    ap.add_argument("--workers", type=int, default=10, help="并发线程数")
     ap.add_argument("--limit", type=int, default=0)
     args = ap.parse_args()
 

@@ -47,7 +47,7 @@ def main():
     ap.add_argument("--master_csv", default="storage/papers_master.csv")
     ap.add_argument("--out_dir", default="storage/analysis/base")
     ap.add_argument("--sleep", type=float, default=0.1, help="每个线程在请求后的休眠时间")
-    ap.add_argument("--workers", type=int, default=5, help="并发线程数")
+    ap.add_argument("--workers", type=int, default=10, help="并发线程数")
     ap.add_argument("--interest", default=os.getenv("INTEREST_DESCRIPTION", "3D场景表示、理解、智能"))
     args = ap.parse_args()
 
