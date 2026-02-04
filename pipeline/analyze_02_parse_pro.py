@@ -192,7 +192,7 @@ def main() -> None:
     ap.add_argument(
         "--workers",
         type=int,
-        default=5,
+        default=1,
         help="paper-level threads (download+parse in one worker). Keep small to avoid reCAPTCHA / GPU contention.",
     )
     args = ap.parse_args()

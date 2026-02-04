@@ -4,3 +4,6 @@ arxiv.rss
 *__pycache__*
 messenger
 cron-run_daily.log
+
+.env-mac
+.env-spark

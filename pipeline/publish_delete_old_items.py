@@ -31,7 +31,7 @@ def _parse_pubdate(s: str) -> Optional[datetime]:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--rss_file", default="arxiv.rss")
-    ap.add_argument("--days", type=int, default=30, help="删除多少天之前的条目")
+    ap.add_argument("--days", type=int, default=14, help="删除多少天之前的条目")
     ap.add_argument("--now", default=None, help="统一的当前时间（RFC2822），用于与调度器对齐")
     args = ap.parse_args()
 

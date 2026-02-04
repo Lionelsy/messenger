@@ -69,7 +69,7 @@ def _looks_like_pdf(path: Path) -> bool:
 def download_arxiv_pdf(
     paper_id: str,
     pdf_dir: Path,
-    timeout: int = 120,
+    timeout: int = 600,
     max_retries: int = 3,
     sleep_base: float = 1.0,
 ) -> Path:

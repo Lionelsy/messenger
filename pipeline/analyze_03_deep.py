@@ -25,7 +25,8 @@ if str(_ROOT) not in sys.path:
 from config.ai import get_ai_clients
 from config.prompt import (
     SYSTEM_CN_JSON,
-    build_user_prompt_step03_deep_cn,
+    SYSTEM_CN_PLAIN,
+    build_user_prompt_step03_deep_single_q_cn,
     build_user_prompt_step03_deep_fix_cn,
 )
 
@@ -174,6 +175,24 @@ def _repair_to_required_json(llm, bad_output_text: str) -> Dict[str, Any]:
     return fixed_obj
 
 
+def _normalize_plain_answer(text: str) -> str:
+    """
+    规范化单题纯文本输出：
+    - 去掉首尾空白
+    - 去掉常见的前缀“回答：/答案：”
+    - 空则返回 "unknown"
+    """
+    t = (text or "").strip()
+    if not t:
+        return "unknown"
+    # 去掉一些模型爱加的标签
+    t = re.sub(r"^(回答|答案|答复)\s*[:：]\s*", "", t)
+    # 去掉包裹引号
+    if (t.startswith('"') and t.endswith('"')) or (t.startswith("“") and t.endswith("”")):
+        t = t[1:-1].strip()
+    return t or "unknown"
+
+
 def _load_existing_deep(out_path: Path) -> Optional[Dict[str, Any]]:
     try:
         if not out_path.exists():
@@ -253,17 +272,23 @@ def main() -> None:
             title, md = _load_parsed_md(parse_path, pid)
             md = md[: args.max_chars]
 
-            messages = [
-                {"role": "system", "content": SYSTEM_CN_JSON},
-                {"role": "user", "content": build_user_prompt_step03_deep_cn(title, md)},
-            ]
-            out_text = llm.chat_text(messages, response_json=True)
-            deep_obj = _parse_json_obj_relaxed(out_text)
-            if _deep_result_is_valid(deep_obj):
-                deep_obj = _normalize_deep_result(deep_obj)
-            else:
-                # 额外一步：强制把输出修正成 REQUIRED_Q_KEYS
-                deep_obj = _repair_to_required_json(llm, out_text)
+            # 逐问题多次请求：每次只回答 1 个问题，最后组装成 REQUIRED_Q_KEYS 对应的 deep_obj
+            deep_obj: Dict[str, Any] = {}
+            for q in REQUIRED_Q_KEYS:
+                messages = [
+                    {"role": "system", "content": SYSTEM_CN_PLAIN},
+                    {"role": "user", "content": build_user_prompt_step03_deep_single_q_cn(title, md, q)},
+                ]
+                out_text = llm.chat_text(messages)
+                deep_obj[q] = _normalize_plain_answer(out_text)
+
+                # 每次请求间隔（避免过快打满/触发限流）
+                if args.sleep > 0:
+                    time.sleep(args.sleep)
+
+            # deep_obj 是程序端按 REQUIRED_Q_KEYS 构造的，理论上恒 valid；这里保留一个断言式兜底
+            if not _deep_result_is_valid(deep_obj):
+                raise ValueError("deep_obj keys invalid after per-question calls")
 
             out_path = out_dir / f"{pid}.json"
             payload = {
@@ -283,9 +308,6 @@ def main() -> None:
         except Exception as e:
             print(f"[ERR] {pid}: {e}")
             continue
-        finally:
-            if args.sleep > 0:
-                time.sleep(args.sleep)
 
     _write_master_rows(master_csv, rows)
     print(f"[DONE] deep_analyzed={done} ; master_updated={master_csv}")

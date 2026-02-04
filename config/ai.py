@@ -16,7 +16,6 @@ import os
 import json
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
-from urllib.parse import urlsplit, urlunsplit
 
 import requests
 

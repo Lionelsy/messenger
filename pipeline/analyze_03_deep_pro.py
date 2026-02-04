@@ -23,11 +23,22 @@ from tqdm import tqdm
 from config.ai import get_ai_clients
 from config.prompt import (
     SYSTEM_CN_JSON,
-    build_user_prompt_step03_deep_cn,
+    SYSTEM_CN_PLAIN,
+    build_user_prompt_step03_deep_single_q_cn,
     build_user_prompt_step03_deep_fix_cn,
 )
 
-from analyze_03_deep import _read_master_rows, _write_master_rows, _load_parsed_md, _parse_json_obj_relaxed, _deep_result_is_valid, _normalize_deep_result, _repair_to_required_json, _is_true, _load_existing_deep
+from analyze_03_deep import (
+    _read_master_rows,
+    _write_master_rows,
+    _load_parsed_md,
+    _deep_result_is_valid,
+    _repair_to_required_json,
+    _is_true,
+    _load_existing_deep,
+    REQUIRED_Q_KEYS,
+    _normalize_plain_answer,
+)
 
 def process_deep_task(
     row: dict, 
@@ -50,20 +61,22 @@ def process_deep_task(
         title, md = _load_parsed_md(parse_path, pid)
         md = md[: args.max_chars]
 
-        # Step 1: LLM 深度解读
-        messages = [
-            {"role": "system", "content": SYSTEM_CN_JSON},
-            {"role": "user", "content": build_user_prompt_step03_deep_cn(title, md)},
-        ]
-        out_text = llm.chat_text(messages, response_json=True)
-        deep_obj = _parse_json_obj_relaxed(out_text)
+        # Step 1: 逐问题多次请求（每次只回答 1 个问题）
+        deep_obj: Dict[str, Any] = {}
+        for q in REQUIRED_Q_KEYS:
+            messages = [
+                {"role": "system", "content": SYSTEM_CN_PLAIN},
+                {"role": "user", "content": build_user_prompt_step03_deep_single_q_cn(title, md, q)},
+            ]
+            out_text = llm.chat_text(messages)
+            deep_obj[q] = _normalize_plain_answer(out_text)
 
-        # Step 2: 格式验证与修正
-        if _deep_result_is_valid(deep_obj):
-            deep_obj = _normalize_deep_result(deep_obj)
-        else:
-            # 额外一步：格式修复
-            deep_obj = _repair_to_required_json(llm, out_text)
+            # 每次请求间隔
+            if args.sleep > 0:
+                time.sleep(args.sleep)
+
+        if not _deep_result_is_valid(deep_obj):
+            raise ValueError("deep_obj keys invalid after per-question calls")
 
         # Step 3: 写入结果文件
         out_path = out_dir / f"{pid}.json"
@@ -78,10 +91,6 @@ def process_deep_task(
         }
         out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         
-        # 模拟请求间隔
-        if args.sleep > 0:
-            time.sleep(args.sleep)
-            
         return pid, True, deep_obj
 
     except Exception as e:
@@ -94,7 +103,7 @@ def main() -> None:
     ap.add_argument("--out_dir", default="storage/analysis/deep")
     ap.add_argument("--max_chars", type=int, default=20000)
     ap.add_argument("--sleep", type=float, default=0.1)
-    ap.add_argument("--workers", type=int, default=10, help="并发线程数")
+    ap.add_argument("--workers", type=int, default=4, help="并发线程数")
     ap.add_argument("--limit", type=int, default=0)
     args = ap.parse_args()
 

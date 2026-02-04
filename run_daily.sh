@@ -37,9 +37,17 @@ set -a; source .env; set +a
 "$PY" "$ROOT/pipeline/fetch_hf_daily.py" --date "$DATE_STR"
 "$PY" "$ROOT/pipeline/update_paper_list.py" --date "$DATE_STR"
 
+curl -s http://192.168.31.125:5050/llm/start && sleep 600
 "$PY" "$ROOT/pipeline/analyze_01_base_pro.py"
+curl -s http://192.168.31.125:5050/llm/stop && sleep 60
+
+curl -s http://192.168.31.125:5050/mineru/start && sleep 60
 "$PY" "$ROOT/pipeline/analyze_02_parse_pro.py"
+curl -s http://192.168.31.125:5050/mineru/stop && sleep 60
+
+curl -s http://192.168.31.125:5050/llm/start && sleep 600
 "$PY" "$ROOT/pipeline/analyze_03_deep_pro.py"
+curl -s http://192.168.31.125:5050/llm/stop && sleep 60
 
 "$PY" "$ROOT/pipeline/publish_add_new_items.py" --run_pubdate "$RUN_PUBDATE"
 "$PY" "$ROOT/pipeline/publish_delete_old_items.py" --now "$RUN_PUBDATE"

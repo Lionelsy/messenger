@@ -13,6 +13,9 @@ SYSTEM_CN_JSON = """你是一个严谨的学术论文助手。
 SYSTEM_CN_RELEVANCE = """你是一个判断论文是否与研究方向相关的科研助手。
 你必须只输出“是”或“否”，不要输出其它任何内容。"""
 
+SYSTEM_CN_PLAIN = """你是一个严谨的学术论文助手。
+你必须基于输入文本回答，不要编造不存在的信息。
+你必须只输出回答正文（纯文本），不要输出 JSON、不要 markdown、不要代码块、不要任何额外解释。"""
 
 def build_user_prompt_step03_summary_cn(summary: str) -> str:
     """
@@ -95,6 +98,34 @@ def build_user_prompt_step03_deep_cn(paper_title: str, paper_text: str) -> str:
   "论文的关键创新点有哪些？相比之前的工作，有什么不同？": "回答4内容",
   "如果要用一句话总结这篇论文的贡献，你会怎么说？": "回答5内容"
 }}
+""".strip()
+
+
+def build_user_prompt_step03_deep_single_q_cn(paper_title: str, paper_text: str, question: str) -> str:
+    """
+    深度解读（单问题版）：
+    - 每次只问 1 个问题，降低一次性多问题输出导致的漏答/错 key 风险
+    - 输出纯文本答案；程序侧自行构造键值对
+    """
+    title = (paper_title or "").strip()
+    text = (paper_text or "").strip()
+    q = (question or "").strip()
+    return f"""
+你是一个优秀的学术论文解读助手，请通读并分析以下论文的原始内容，并回答“一个”问题。
+
+要求：
+- 请使用简洁、准确、通俗的中文解释，并尽量避免使用公式、符号或缩写。
+- 如果文中没有明确说明，请写 "unknown"，不要编造。
+- 回答尽量简短（建议 2-4 句），不要列长清单，不要输出数组/嵌套对象。
+- 只输出答案纯文本（不要 JSON、不要 markdown、不要代码块、不要任何额外文字）。
+
+论文标题：《{title}》
+
+论文内容（部分或全部）如下：
+{text}
+
+问题：
+{q}
 """.strip()
 
 
