@@ -3,15 +3,12 @@
   Point Cloud: '"Point Cloud" OR "3D Point Cloud"'
   Point Cloud Completion: '"Point Cloud Completion"'
   Point Cloud Segmentation: '"Point Cloud Segmentation"'
-  Point Cloud Registration: '"Point Cloud Registration" OR "Point Cloud Matching"'
 
 Deep Learning:
-  Few-shot & Meta Learning: '"Few-shot Learning" OR "One-shot Learning" OR "Meta-Learning"'
   Contrastive & Self-Supervised Learning: '"Contrastive Learning" OR "Self-supervised Learning"'
-  Graph Neural Networks: '"Graph Neural Network" OR "GNN"'
   Representation Learning: '"Representation Learning"'
   Transfer & Unsupervised Learning: '"Transfer Learning" OR "Unsupervised Learning"'
-  Foundation & Large Models: '"Foundation Models" OR "Large Vision Models" OR "Multimodal Foundation Models" OR "Pretrained Transformers"'
+  Foundation & Large Models: '"Foundation Models" OR "Large Vision Models" OR "Multimodal Foundation Models"'
 
 Spatiotemporal & Spatial Intelligence:
   Spatial Understanding: '"Spatial Understanding" OR "Scene Understanding" OR "3D Scene Graph" OR "Geometric Reasoning"'

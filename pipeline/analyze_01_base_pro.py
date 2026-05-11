@@ -3,6 +3,7 @@ import argparse
 import csv
 import json
 import os
+import random
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -44,7 +45,7 @@ def main():
     ap.add_argument("--master_csv", default="storage/papers_master.csv")
     ap.add_argument("--out_dir", default="storage/analysis/base")
     ap.add_argument("--sleep", type=float, default=0.1, help="每个线程在请求后的休眠时间")
-    ap.add_argument("--workers", type=int, default=8, help="并发线程数")
+    ap.add_argument("--workers", type=int, default=4, help="并发线程数")
     ap.add_argument("--interest", default=os.getenv("INTEREST_DESCRIPTION", "3D场景表示、理解、智能"))
     args = ap.parse_args()
 
@@ -59,6 +60,7 @@ def main():
 
     # 筛选待处理任务
     todo_rows = [r for r in rows if (r.get("base_analysis") or "False").strip().lower() != "true"]
+    random.shuffle(todo_rows)
     if not todo_rows:
         print("[INFO] No pending papers to analyze.")
         return

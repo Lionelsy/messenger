@@ -15,6 +15,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict
 
+import random
+
 import arxiv
 
 from tqdm import tqdm
@@ -60,13 +62,23 @@ def _parse_json_obj_relaxed(text: str) -> Dict[str, Any]:
 
 def fetch_arxiv_metadata(paper_id: str) -> Dict[str, Any]:
     """
-    拉取 arXiv 元数据（title/abstract/authors/url...）。
+    获取 arXiv 元数据（title/abstract/authors/url...）。
+    优先从 fetch 阶段缓存的 JSON 读取；缺失时回退到 arXiv API 抓取。
     paper_id 允许包含版本号（如 2512.23675v1）。
     """
     pid = (paper_id or "").strip()
     if not pid:
         raise ValueError("paper_id is empty")
 
+    # 优先读取本地缓存
+    meta_path = _ROOT / "storage" / "fetch-arxiv" / "meta" / f"{pid}.json"
+    if meta_path.exists():
+        try:
+            return json.loads(meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass  # JSON 损坏则回退到 API
+
+    # 回退：调用 arXiv API
     pid_no_ver = pid.split("v", 1)[0]
     client = arxiv.Client()
     search = arxiv.Search(id_list=[pid_no_ver], max_results=1)
@@ -172,6 +184,7 @@ def main():
         return
 
     todo = [r for r in rows if (r.get("base_analysis") or "False").strip().lower() != "true"]
+    random.shuffle(todo)
 
     done = 0
     for r in tqdm(todo, total=len(todo), desc="analyze_01_base", unit="paper"):

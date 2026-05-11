@@ -7,3 +7,4 @@ cron-run_daily.log
 
 .env-mac
 .env-spark
+CLAUDE.md

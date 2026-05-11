@@ -40,6 +40,7 @@ from analyze_03_deep import (
     _normalize_plain_answer,
 )
 
+
 def process_deep_task(
     row: dict, 
     args: argparse.Namespace, 
@@ -103,7 +104,7 @@ def main() -> None:
     ap.add_argument("--out_dir", default="storage/analysis/deep")
     ap.add_argument("--max_chars", type=int, default=20000)
     ap.add_argument("--sleep", type=float, default=0.1)
-    ap.add_argument("--workers", type=int, default=4, help="并发线程数")
+    ap.add_argument("--workers", type=int, default=2, help="并发线程数")
     ap.add_argument("--limit", type=int, default=0)
     args = ap.parse_args()
 
@@ -123,7 +124,6 @@ def main() -> None:
         if not pid: continue
         # 满足深度分析的前置条件
         if (_is_true(r.get("base_analysis")) and 
-            _is_true(r.get("relevance")) and 
             _is_true(r.get("download")) and 
             not _is_true(r.get("publish"))):
             

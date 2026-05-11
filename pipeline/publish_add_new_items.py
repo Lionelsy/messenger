@@ -122,7 +122,13 @@ def _load_deep_json(deep_path: Path) -> Dict[str, Any]:
     return json.loads(deep_path.read_text(encoding="utf-8"))
 
 
-def _build_description_html(base: Dict[str, Any], deep: Dict[str, Any], is_relevant: bool) -> str:
+def _build_description_html(
+    base: Dict[str, Any],
+    deep: Dict[str, Any],
+    *,
+    sources: str,
+    is_relevant: bool,
+) -> str:
     fetched = base.get("fetched") or {}
     analysis = base.get("analysis") or {}
     gpt_summary = (analysis.get("gpt_summary") or {}) if isinstance(analysis, dict) else {}
@@ -137,9 +143,11 @@ def _build_description_html(base: Dict[str, Any], deep: Dict[str, Any], is_relev
 
     parts: list[str] = []
 
-    # 对“已做深度解读且与研究主题相关”的条目加醒目标记
-    if has_deep and is_relevant:
-        parts.append("<p>⭐ 与研究主题相关</p>")
+    src = html.escape(_clean_string(sources)) or "unknown"
+    if is_relevant:
+        parts.append(f"<p>来源: {src} | ⭐ 与研究主题相关</p>")
+    else:
+        parts.append(f"<p>来源: {src}</p>")
     # GPT 基础摘要
     if isinstance(gpt_summary, dict) and gpt_summary:
         parts.append("<h3>GPT 基础摘要</h3>")
@@ -170,6 +178,7 @@ def _add_item(
     deep: Dict[str, Any],
     run_dt: datetime,
     is_relevant: bool,
+    sources: str,
 ) -> None:
     fetched = base.get("fetched") or {}
     title = _clean_string(fetched.get("title") or paper_id)
@@ -190,7 +199,7 @@ def _add_item(
     ET.SubElement(item, "pubDate").text = _rfc2822(run_dt)
 
     # 先写成普通文本（ElementTree 会自动转义）；最终写文件前会统一改成 CDATA
-    desc = _build_description_html(base, deep, is_relevant=is_relevant)
+    desc = _build_description_html(base, deep, sources=sources, is_relevant=is_relevant)
     ET.SubElement(item, "description").text = desc
 
     # 插入到 channel 开头（紧跟在 metadata 后面）
@@ -292,7 +301,15 @@ def main() -> None:
         row_is_relevant = _is_true(r.get("relevance", ""))
         is_relevant = row_is_relevant or base_is_relevant
 
-        _add_item(channel, pid, base, deep, run_dt=run_dt, is_relevant=is_relevant)
+        _add_item(
+            channel,
+            pid,
+            base,
+            deep,
+            run_dt=run_dt,
+            is_relevant=is_relevant,
+            sources=(r.get("sources") or ""),
+        )
         existing_ids.add(pid)
 
         r["publish"] = "True"

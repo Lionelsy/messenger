@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import json
+import re
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
 
@@ -134,7 +135,8 @@ class LLMClient:
     def chat_text(self, messages: List[Dict[str, str]], **kwargs) -> str:
         resp = self.chat(messages, **kwargs)
         try:
-            return resp["choices"][0]["message"]["content"]
+            content = resp["choices"][0]["message"]["content"]
+            return _strip_thinking_content(content)
         except Exception:
             return json.dumps(resp, ensure_ascii=False, indent=2)
 
@@ -169,6 +171,7 @@ class LLMClient:
         payload: Dict[str, Any] = {
             "model": cfg.model,
             "messages": messages,
+            "think": False,
             "temperature": cfg.temperature,
             "top_p": cfg.top_p,
             "max_tokens": cfg.max_tokens,
@@ -228,6 +231,32 @@ class LLMClient:
             return {"choices": [{"message": {"content": content}}]}
         except Exception:
             return {"raw": str(resp)}
+
+
+def _strip_thinking_content(text: str) -> str:
+    """
+    过滤模型输出中的“思考/推理”内容，只保留最终答案部分。
+
+    兼容常见形式：
+    - <think>...</think> + 最终答案
+    - 只有 </think>（部分后端会把思考段落直接拼在 content 前，再补一个闭合标签）
+    - 多段 <think>...</think>（全部移除）
+    """
+    t = (text or "")
+    if not t:
+        return ""
+
+    # 1) 标准 <think>...</think>：直接剔除所有 think 块
+    if "<think>" in t and "</think>" in t:
+        t2 = re.sub(r"<think>[\s\S]*?</think>", "", t, flags=re.IGNORECASE).strip()
+        return t2
+
+    # 2) 只有 </think>：保留最后一个闭合标签之后的内容
+    if "</think>" in t:
+        tail = t.rsplit("</think>", 1)[-1].strip()
+        return tail
+
+    return t.strip()
 
 
 def _mask_secret(s: str, keep: int = 4) -> str:

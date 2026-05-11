@@ -59,6 +59,11 @@ def _is_true(v: str) -> bool:
     return (v or "").strip().lower() == "true"
 
 
+def _has_source(sources: str, source: str) -> bool:
+    ss = {(x or "").strip().lower() for x in (sources or "").split(";") if (x or "").strip()}
+    return (source or "").strip().lower() in ss
+
+
 def _looks_like_pdf(path: Path) -> bool:
     """快速判定文件是否真 PDF（防止保存了 HTML reCAPTCHA 页面）"""
     try:
@@ -172,10 +177,8 @@ def _process_one_paper(pid: str, pdf_dir: Path, parse_dir: Path, ocr) -> Tuple[s
         if (not pdf_path.exists()) or (not _looks_like_pdf(pdf_path)):
             pdf_path = download_arxiv_pdf(pid, pdf_dir)
 
-        # 2) OCR 解析（缺失才解析）
-        if not parse_path.exists():
-            parsed = ocr.ocr_pdf(str(pdf_path))
-            with parse_path.open("w", encoding="utf-8") as f:
+        parsed = ocr.ocr_pdf(str(pdf_path))
+        with parse_path.open("w", encoding="utf-8") as f:
                 json.dump(parsed, f, ensure_ascii=False, indent=2)
 
         return pid, True, "ok"
@@ -208,7 +211,7 @@ def main() -> None:
         print(f"[WARN] master csv not found or empty: {master_csv}")
         return
 
-    # 只处理：relevance=True 且「尚未同时具备 pdf + parse 结果」的论文
+    # 只处理： (relevance=True 或 sources 含 hf) 且 download!=True 的论文
     todo_pids: List[str] = []
     pid_to_row: dict[str, dict] = {}
 
@@ -218,12 +221,13 @@ def main() -> None:
             continue
         pid_to_row[pid] = r
 
-        if not _is_true(r.get("relevance", "")):
+        if not (_is_true(r.get("relevance", "")) or _has_source(r.get("sources", ""), "hf")):
             continue
 
-        pdf_path = pdf_dir / f"{pid}.pdf"
-        parse_path = parse_dir / f"{pid}.json"
-        if pdf_path.exists() and parse_path.exists():
+        if _is_true(r.get("download", "")):
+            continue
+
+        if _is_true(r.get("publish", "")):
             continue
 
         todo_pids.append(pid)

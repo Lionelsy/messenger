@@ -49,7 +49,7 @@ def build_user_prompt_step03_relevance_cn(summary: str, interest_description: st
     参考 Step03_query_GPT.py：只判断是否高度相关，输出“是/否”。
     """
     s = (summary or "").replace("\n", " ").strip()
-    interest = (interest_description or "").strip() or "3D场景表示、理解、智能"
+    interest = (interest_description or "").strip() or "3D空间表示、理解、智能"
     return f"""
 你正在筛选论文是否与你的研究方向高度相关。
 
