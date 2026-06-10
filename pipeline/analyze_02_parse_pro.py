@@ -240,6 +240,7 @@ def main() -> None:
 
     ok_cnt = 0
     fail_cnt = 0
+    master_lock = threading.Lock()
 
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as ex:
         futs = {
@@ -251,19 +252,19 @@ def main() -> None:
             pid, ok, msg = fut.result()
 
             if ok:
-                pid_to_row[pid]["download"] = "True"
-                # pid_to_row[pid].pop("download_error", None)
-                ok_cnt += 1
+                with master_lock:
+                    pid_to_row[pid]["download"] = "True"
+                    ok_cnt += 1
+                    _write_master_rows(master_csv, rows)
             else:
-                pid_to_row[pid]["download"] = "False"
-                # pid_to_row[pid]["download_error"] = msg[:300]
-                fail_cnt += 1
+                with master_lock:
+                    pid_to_row[pid]["download"] = "False"
+                    fail_cnt += 1
                 print(f"[ERR] {pid}: {msg}")
 
             if args.sleep > 0:
                 time.sleep(args.sleep)
 
-    _write_master_rows(master_csv, rows)
     print(f"[DONE] ok={ok_cnt} fail={fail_cnt} ; master_updated={master_csv}")
 
 

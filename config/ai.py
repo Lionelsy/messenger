@@ -15,6 +15,8 @@ from __future__ import annotations
 import os
 import json
 import re
+import time
+import random
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
 
@@ -31,10 +33,10 @@ class ZhipuConfig:
     api_key: str = ""
     model: str = "glm-4.5-flash"
     # 目前走官方 SDK，不再直接用 base_url 发 HTTP；保留字段以便排查/未来扩展
-    base_url: str = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+    base_url: str = "https://open.bigmodel.cn/api/coding/paas/v4"
     temperature: float = 0.2
     max_tokens: int = 2400
-    timeout: int = 300
+    timeout: int = 1000
 
 
 @dataclass
@@ -46,7 +48,7 @@ class OpenAICompatConfig:
     temperature: float = 0.2
     top_p: float = 0.9
     max_tokens: int = 2400
-    timeout: int = 300
+    timeout: int = 1000
     # 兼容不同 OpenAI-like 服务的路由习惯；通常是 /v1/chat/completions
     chat_completions_path: str = "/chat/completions"
 
@@ -135,7 +137,10 @@ class LLMClient:
     def chat_text(self, messages: List[Dict[str, str]], **kwargs) -> str:
         resp = self.chat(messages, **kwargs)
         try:
-            content = resp["choices"][0]["message"]["content"]
+            if resp["choices"][0]["message"]["content"]:
+                content = resp["choices"][0]["message"]["content"]
+            else:
+                content = resp["choices"][0]["message"]["reasoning"]
             return _strip_thinking_content(content)
         except Exception:
             return json.dumps(resp, ensure_ascii=False, indent=2)
@@ -145,13 +150,14 @@ class LLMClient:
     @staticmethod
     def _openai_compat_chat_url(base_url: str, chat_path: str) -> str:
         """
-        兼容两种 base_url 写法：
-        - 传入 http://host:port/v1  -> 拼成 /v1/chat/completions
+        兼容多种 base_url 写法：
+        - 传入 http://host:port/v1  -> /v1/chat/completions
+        - 传入 http://host:port/v4  -> /v4/chat/completions
         - 传入 http://host:port     -> 自动补 /v1，再拼 /chat/completions
         """
         b = base_url.rstrip("/")
         p = "/" + chat_path.lstrip("/")
-        if b.endswith("/v1"):
+        if re.search(r"/v\d+$", b):
             return b + p
         return b + "/v1" + p
 
@@ -179,15 +185,46 @@ class LLMClient:
         if response_json:
             payload["response_format"] = {"type": "json_object"}
 
-        r = requests.post(url, headers=headers, json=payload, timeout=cfg.timeout)
-        try:
-            r.raise_for_status()
-        except requests.HTTPError as e:
-            body = (r.text or "").strip()
-            if body:
-                raise requests.HTTPError(f"{e} | response_body={body[:2000]}") from e
-            raise
-        return r.json()
+        max_retries = 5
+        backoff_base = 5.0
+        last_err: Optional[Exception] = None
+
+        for attempt in range(max_retries):
+            try:
+                r = requests.post(url, headers=headers, json=payload, timeout=cfg.timeout)
+                r.raise_for_status()
+                return r.json()
+            except requests.HTTPError as e:
+                last_err = e
+                status = e.response.status_code if e.response is not None else None
+                if status in (429, 502, 503, 504) and attempt < max_retries - 1:
+                    sleep_s = backoff_base * (2 ** attempt) + random.uniform(0, 2)
+                    body = (e.response.text or "").strip()[:200] if e.response is not None else ""
+                    print(
+                        f"[WARN] LLM HTTP {status}; retry {attempt+1}/{max_retries} in {sleep_s:.1f}s | {body}",
+                        flush=True,
+                    )
+                    time.sleep(sleep_s)
+                else:
+                    body = (e.response.text or "").strip()[:2000] if e.response is not None else ""
+                    if body:
+                        raise requests.HTTPError(f"{e} | response_body={body}") from e
+                    raise
+            except (requests.ConnectionError, requests.Timeout) as e:
+                last_err = e
+                if attempt < max_retries - 1:
+                    sleep_s = backoff_base * (2 ** attempt) + random.uniform(0, 2)
+                    print(
+                        f"[WARN] LLM {type(e).__name__}; retry {attempt+1}/{max_retries} in {sleep_s:.1f}s",
+                        flush=True,
+                    )
+                    time.sleep(sleep_s)
+                else:
+                    raise
+
+        if last_err is not None:
+            raise last_err
+        raise RuntimeError("LLM request failed after retries")
 
     def _chat_zhipu(
         self,

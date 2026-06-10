@@ -212,6 +212,7 @@ def main() -> None:
             r["download"] = "True"
 
             done += 1
+            _write_master_rows(master_csv, rows)
         except Exception as e:
             print(f"[ERR] {pid}: {e}")
             continue
@@ -219,7 +220,6 @@ def main() -> None:
             if args.sleep > 0:
                 time.sleep(args.sleep)
 
-    _write_master_rows(master_csv, rows)
     print(f"[DONE] parsed={done} ; master_updated={master_csv}")
 
 

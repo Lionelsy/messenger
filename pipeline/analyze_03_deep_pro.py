@@ -8,6 +8,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Tuple, Optional
+from threading import Lock
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import sys
@@ -145,13 +146,14 @@ def main() -> None:
 
     # 3. 并发执行
     print(f"[START] Deep analyzing {len(todo_rows)} papers with {args.workers} workers...")
-    
-    # 用字典存储更新结果，最后统一同步到 rows
-    results_map = {} 
+
+    done_count = 0
+    master_lock = Lock()
+    row_map = {(r.get("paperID") or "").strip(): r for r in rows}
 
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
         future_to_pid = {
-            executor.submit(process_deep_task, r, args, llm): r["paperID"] 
+            executor.submit(process_deep_task, r, args, llm): r["paperID"]
             for r in todo_rows
         }
 
@@ -160,21 +162,16 @@ def main() -> None:
             try:
                 res_pid, success, data = future.result()
                 if success:
-                    results_map[res_pid] = "True"
+                    with master_lock:
+                        if res_pid in row_map:
+                            row_map[res_pid]["deep_analysis"] = "True"
+                            done_count += 1
+                            _write_master_rows(master_csv, rows)
                 else:
                     print(f"\n[ERR] {res_pid} failed: {data}")
             except Exception as e:
                 print(f"\n[CRITICAL] {pid} crash: {e}")
 
-    # 4. 更新 Master 数据并保存
-    done_count = 0
-    for r in rows:
-        pid = r.get("paperID")
-        if pid in results_map:
-            r["deep_analysis"] = "True"
-            done_count += 1
-
-    _write_master_rows(master_csv, rows)
     print(f"[DONE] Processed {done_count} papers. Master CSV updated.")
 
 if __name__ == "__main__":

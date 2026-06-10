@@ -1,10 +1,11 @@
 from __future__ import annotations
 import argparse
-import csv
 import json
 import os
 import random
+import time
 from pathlib import Path
+from threading import Lock
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import sys
@@ -16,29 +17,71 @@ if str(_ROOT) not in sys.path:
 
 from tqdm import tqdm
 
-from analyze_01_base import analyze_one, _read_master_rows, _write_master_rows
+import arxiv
+
+from analyze_01_base import (
+    analyze_one, fetch_arxiv_metadata,
+    _read_master_rows, _write_master_rows,
+)
+
+
+def pre_fetch_metadata(todo_rows: list[dict], client: arxiv.Client, delay: float = 1.0) -> None:
+    """
+    串行预抓取所有缺失的 arXiv 元数据到本地缓存。
+    在并行 LLM 分析之前调用，避免多线程同时打 arXiv API 触发 429。
+    """
+    meta_dir = _ROOT / "storage" / "fetch-arxiv" / "meta"
+    meta_dir.mkdir(parents=True, exist_ok=True)
+
+    missing = []
+    for r in todo_rows:
+        pid = (r.get("paperID") or "").strip()
+        if not pid:
+            continue
+        if not (meta_dir / f"{pid}.json").exists():
+            missing.append(pid)
+
+    if not missing:
+        print(f"[INFO] All {len(todo_rows)} papers have cached metadata.")
+        return
+
+    print(f"[INFO] Pre-fetching metadata for {len(missing)} papers (sequential)...")
+    fetched, failed = 0, 0
+    for pid in tqdm(missing, desc="pre_fetch_metadata", unit="paper"):
+        try:
+            meta = fetch_arxiv_metadata(pid, client=client)
+            (meta_dir / f"{pid}.json").write_text(
+                json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8",
+            )
+            fetched += 1
+        except Exception as e:
+            print(f"\n[WARN] pre-fetch failed for {pid}: {e}")
+            failed += 1
+        time.sleep(delay)
+
+    print(f"[INFO] Pre-fetch done: {fetched} ok, {failed} failed.")
+
 
 def process_task(row: dict, interest: str, out_dir: Path, sleep_s: float):
     """
-    单个任务的工作函数：处理一篇论文并保存结果
+    单个任务的工作函数：处理一篇论文并保存结果。
+    arXiv 元数据从本地缓存读取（由 pre_fetch_metadata 预抓取），不再调用 arXiv API。
     """
     pid = (row.get("paperID") or "").strip()
     if not pid:
         return None, False
 
     try:
-        # 执行分析
         result = analyze_one(pid, interest, sleep_s=sleep_s)
-        
-        # 保存 JSON 文件
+
         out_path = out_dir / f"{pid}.json"
         with out_path.open("w", encoding="utf-8") as f:
             json.dump(result, f, ensure_ascii=False, indent=2)
-        
-        # 返回结果用于更新 master 列表
+
         return pid, result["analysis"]["is_relevant"]
     except Exception as e:
         return pid, e
+
 
 def main():
     ap = argparse.ArgumentParser()
@@ -46,7 +89,7 @@ def main():
     ap.add_argument("--out_dir", default="storage/analysis/base")
     ap.add_argument("--sleep", type=float, default=0.1, help="每个线程在请求后的休眠时间")
     ap.add_argument("--workers", type=int, default=4, help="并发线程数")
-    ap.add_argument("--interest", default=os.getenv("INTEREST_DESCRIPTION", "3D场景表示、理解、智能"))
+    ap.add_argument("--interest", default=os.getenv("INTEREST_DESCRIPTION", "3D空间表示、理解、智能"))
     args = ap.parse_args()
 
     master_csv = Path(args.master_csv)
@@ -67,36 +110,38 @@ def main():
 
     print(f"[START] Total todo: {len(todo_rows)} using {args.workers} workers")
 
-    # 使用线程池执行
+    # === 阶段 1：串行预抓取 arXiv 元数据 ===
+    shared_client = arxiv.Client(delay_seconds=3, num_retries=3)
+    pre_fetch_metadata(todo_rows, shared_client, delay=1.0)
+
+    # === 阶段 2：并行 LLM 分析 ===
+    print(f"[INFO] Starting parallel LLM analysis ({args.workers} workers)...")
     done_count = 0
-    # 将 rows 转换成 dict 以便根据 paperID 快速定位更新
+    master_lock = Lock()
     row_map = { (r.get("paperID") or "").strip(): r for r in rows }
 
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
-        # 提交所有任务
         future_to_pid = {
-            executor.submit(process_task, r, args.interest, out_dir, args.sleep): (r.get("paperID") or "").strip() 
+            executor.submit(process_task, r, args.interest, out_dir, args.sleep): (r.get("paperID") or "").strip()
             for r in todo_rows
         }
 
-        # 使用 tqdm 监听任务完成情况
         for future in tqdm(as_completed(future_to_pid), total=len(todo_rows), desc="Parallel Analysis"):
             pid = future_to_pid[future]
             try:
                 res_pid, status = future.result()
                 if isinstance(status, Exception):
-                    print(f"\n[ERR] {pid} failed: {status}")
+                    print(f"\n[ERR] {pid} failed [{type(status).__name__}]: {status}")
                 else:
-                    # 更新内存中的 rows 数据
-                    if res_pid in row_map:
-                        row_map[res_pid]["base_analysis"] = "True"
-                        row_map[res_pid]["relevance"] = "True" if status else "False"
-                        done_count += 1
+                    with master_lock:
+                        if res_pid in row_map:
+                            row_map[res_pid]["base_analysis"] = "True"
+                            row_map[res_pid]["relevance"] = "True" if status else "False"
+                            done_count += 1
+                            _write_master_rows(master_csv, rows)
             except Exception as e:
                 print(f"\n[CRITICAL] Unexpected error for {pid}: {e}")
 
-    # 任务全部完成后，统一写入 CSV
-    _write_master_rows(master_csv, rows)
     print(f"\n[DONE] Successfully analyzed: {done_count} papers. Master CSV updated.")
 
 if __name__ == "__main__":

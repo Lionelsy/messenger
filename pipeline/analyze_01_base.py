@@ -13,11 +13,13 @@ import re
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import random
 
 import arxiv
+import requests
+from bs4 import BeautifulSoup
 
 from tqdm import tqdm
 
@@ -60,49 +62,175 @@ def _parse_json_obj_relaxed(text: str) -> Dict[str, Any]:
         return _parse_json_obj(m.group(0))
 
 
-def fetch_arxiv_metadata(paper_id: str) -> Dict[str, Any]:
+def _fetch_arxiv_metadata_from_page(paper_id: str) -> Optional[Dict[str, Any]]:
     """
-    获取 arXiv 元数据（title/abstract/authors/url...）。
-    优先从 fetch 阶段缓存的 JSON 读取；缺失时回退到 arXiv API 抓取。
-    paper_id 允许包含版本号（如 2512.23675v1）。
+    从 arxiv.org/abs/{id} 静态页面抓取元数据。
+    比 arXiv API 宽松得多，不容易触发限流。
+    返回 None 表示抓取失败（由调用方决定是否回退）。
+    """
+    pid = (paper_id or "").strip()
+    pid_no_ver = pid.split("v", 1)[0]
+
+    url = f"https://arxiv.org/abs/{pid_no_ver}"
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+        )
+    }
+
+    resp = requests.get(url, headers=headers, timeout=30)
+    resp.raise_for_status()
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    # 标题：<meta name="citation_title">
+    title = ""
+    tag = soup.find("meta", attrs={"name": "citation_title"})
+    if tag and tag.get("content"):
+        title = tag["content"].replace("\n", " ").strip()
+
+    # 摘要：<meta name="abstract"> 或 <blockquote class="abstract">
+    abstract = ""
+    tag = soup.find("meta", attrs={"name": "abstract"})  # noqa: F841
+    if tag and tag.get("content"):
+        abstract = tag["content"].replace("\n", " ").strip()
+    else:
+        block = soup.find("blockquote", class_="abstract")
+        if block:
+            # 去掉开头的 "Abstract:" 标签
+            text = block.get_text(separator=" ", strip=True)
+            if text.lower().startswith("abstract"):
+                text = re.sub(r"^abstract\s*:?\s*", "", text, flags=re.IGNORECASE)
+            abstract = text.replace("\n", " ").strip()
+
+    # 作者：<meta name="citation_author">
+    authors = []
+    for tag in soup.find_all("meta", attrs={"name": "citation_author"}):
+        if tag.get("content"):
+            authors.append(tag["content"].strip())
+
+    # 发布日期：<meta name="citation_date">
+    published = ""
+    tag = soup.find("meta", attrs={"name": "citation_date"})
+    if tag and tag.get("content"):
+        published = tag["content"].strip()
+
+    # 分类
+    categories = []
+    span = soup.find("span", class_="primary-subject")
+    if span:
+        categories.append(span.get_text(strip=True))
+
+    if not title and not abstract:
+        return None
+
+    return {
+        "paperID": pid,
+        "title": title,
+        "abstract": abstract,
+        "authors": authors,
+        "published": published,
+        "updated": published,
+        "arxiv_url": f"https://arxiv.org/abs/{pid_no_ver}",
+        "pdf_url": f"https://arxiv.org/pdf/{pid_no_ver}",
+        "categories": categories,
+    }
+
+
+def _fetch_arxiv_metadata_from_api(
+    paper_id: str,
+    *,
+    client: Optional[arxiv.Client] = None,
+    max_attempts: int = 6,
+    backoff_base: float = 10.0,
+) -> Dict[str, Any]:
+    """通过 arXiv API 抓取元数据（带重试），作为静态页面的兜底方案。"""
+    pid = (paper_id or "").strip()
+    pid_no_ver = pid.split("v", 1)[0]
+
+    if client is None:
+        client = arxiv.Client(delay_seconds=3, num_retries=3)
+
+    search = arxiv.Search(id_list=[pid_no_ver], max_results=1)
+
+    last_err: Optional[Exception] = None
+    for attempt in range(max_attempts):
+        try:
+            r = next(iter(client.results(search)), None)
+            if r is None:
+                raise RuntimeError(f"arXiv returned no result for {pid}")
+            return {
+                "paperID": pid,
+                "title": (r.title or "").replace("\n", " ").strip(),
+                "abstract": (r.summary or "").replace("\n", " ").strip(),
+                "authors": [a.name for a in (r.authors or [])],
+                "published": r.published.isoformat(),
+                "updated": r.updated.isoformat(),
+                "arxiv_url": getattr(r, "entry_id", "") or "",
+                "pdf_url": getattr(r, "pdf_url", "") or "",
+                "categories": list(getattr(r, "categories", []) or []),
+            }
+        except arxiv.HTTPError as e:
+            last_err = e
+            status = getattr(e, "status", None)
+            if status == 429 and attempt < max_attempts - 1:
+                sleep_s = backoff_base * (2 ** attempt) + random.uniform(0, 1)
+                print(f"[WARN] arXiv API 429 fetching {pid}; sleep {sleep_s:.1f}s ({attempt+1}/{max_attempts})", file=sys.stderr, flush=True)
+                time.sleep(sleep_s)
+            else:
+                raise
+        except Exception as e:
+            last_err = e
+            if attempt < max_attempts - 1:
+                sleep_s = min(backoff_base * (2 ** attempt), 60.0) + random.uniform(0, 1)
+                print(f"[WARN] arXiv API error fetching {pid}; sleep {sleep_s:.1f}s ({attempt+1}/{max_attempts}): {e}", file=sys.stderr, flush=True)
+                time.sleep(sleep_s)
+            else:
+                raise
+
+    if last_err is not None:
+        raise last_err
+    raise RuntimeError(f"failed to fetch arXiv metadata for {pid}")
+
+
+def fetch_arxiv_metadata(
+    paper_id: str,
+    *,
+    client: Optional[arxiv.Client] = None,
+) -> Dict[str, Any]:
+    """
+    获取 arXiv 元数据，优先级：本地缓存 → 静态页面 → API 兜底。
     """
     pid = (paper_id or "").strip()
     if not pid:
         raise ValueError("paper_id is empty")
 
-    # 优先读取本地缓存
+    # 1) 本地缓存
     meta_path = _ROOT / "storage" / "fetch-arxiv" / "meta" / f"{pid}.json"
     if meta_path.exists():
         try:
             return json.loads(meta_path.read_text(encoding="utf-8"))
         except Exception:
-            pass  # JSON 损坏则回退到 API
+            pass
 
-    # 回退：调用 arXiv API
-    pid_no_ver = pid.split("v", 1)[0]
-    client = arxiv.Client()
-    search = arxiv.Search(id_list=[pid_no_ver], max_results=1)
-    r = next(iter(client.results(search)), None)
-    if r is None:
-        raise RuntimeError(f"failed to fetch arXiv metadata for {pid}")
+    # 2) 静态页面（arxiv.org/abs/{id}），限流宽松
+    try:
+        result = _fetch_arxiv_metadata_from_page(pid)
+        if result is not None:
+            return result
+    except Exception as e:
+        print(f"[WARN] page fetch failed for {pid}: {e}", file=sys.stderr, flush=True)
 
-    return {
-        "paperID": pid,
-        "title": (r.title or "").replace("\n", " ").strip(),
-        "abstract": (r.summary or "").replace("\n", " ").strip(),
-        "authors": [a.name for a in (r.authors or [])],
-        "published": r.published.isoformat(),
-        "updated": r.updated.isoformat(),
-        "arxiv_url": getattr(r, "entry_id", "") or "",
-        "pdf_url": getattr(r, "pdf_url", "") or "",
-        "categories": list(getattr(r, "categories", []) or []),
-    }
+    # 3) API 兜底
+    print(f"[INFO] falling back to API for {pid}", file=sys.stderr, flush=True)
+    return _fetch_arxiv_metadata_from_api(pid, client=client)
 
 
-def analyze_one(paper_id: str, interest_description: str, sleep_s: float = 0.0) -> Dict[str, Any]:
+def analyze_one(paper_id: str, interest_description: str, sleep_s: float = 0.0, *, arxiv_client: Optional[arxiv.Client] = None) -> Dict[str, Any]:
     cfg, llm, _ocr = get_ai_clients()
 
-    meta = fetch_arxiv_metadata(paper_id)
+    meta = fetch_arxiv_metadata(paper_id, client=arxiv_client)
     abstract = meta.get("abstract", "")
 
     # Step 1: 结构化摘要（JSON）
@@ -186,13 +314,16 @@ def main():
     todo = [r for r in rows if (r.get("base_analysis") or "False").strip().lower() != "true"]
     random.shuffle(todo)
 
+    # 创建共享 Client，复用延迟设置避免 429
+    shared_client = arxiv.Client(delay_seconds=3, num_retries=3)
+
     done = 0
     for r in tqdm(todo, total=len(todo), desc="analyze_01_base", unit="paper"):
         pid = (r.get("paperID") or "").strip()
         if not pid:
             continue
         try:
-            result = analyze_one(pid, args.interest, sleep_s=args.sleep)
+            result = analyze_one(pid, args.interest, sleep_s=args.sleep, arxiv_client=shared_client)
             out_path = out_dir / f"{pid}.json"
             with out_path.open("w", encoding="utf-8") as f:
                 json.dump(result, f, ensure_ascii=False, indent=2)
@@ -201,12 +332,12 @@ def main():
             r["base_analysis"] = "True"
             r["relevance"] = "True" if result["analysis"]["is_relevant"] else "False"
             done += 1
+            _write_master_rows(master_csv, rows)
             print(f"[OK] analyzed: {pid} -> {out_path}")
         except Exception as e:
-            print(f"[ERR] analyze failed: {pid} ; {e}")
+            print(f"[ERR] analyze failed: {pid} [{type(e).__name__}] ; {e}")
             continue
 
-    _write_master_rows(master_csv, rows)
     print(f"[DONE] analyzed={done} ; master_updated={master_csv}")
 
 

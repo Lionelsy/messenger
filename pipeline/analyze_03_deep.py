@@ -305,11 +305,11 @@ def main() -> None:
             # 只标记 deep_analysis，不动 publish
             r["deep_analysis"] = "True"
             done += 1
+            _write_master_rows(master_csv, rows)
         except Exception as e:
             print(f"[ERR] {pid}: {e}")
             continue
 
-    _write_master_rows(master_csv, rows)
     print(f"[DONE] deep_analyzed={done} ; master_updated={master_csv}")
 
 if __name__ == "__main__":
