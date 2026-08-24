@@ -28,30 +28,18 @@ def _parse_pubdate(s: str) -> Optional[datetime]:
         return None
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--rss_file", default="arxiv.rss")
-    ap.add_argument("--days", type=int, default=14, help="删除多少天之前的条目")
-    ap.add_argument("--now", default=None, help="统一的当前时间（RFC2822），用于与调度器对齐")
-    args = ap.parse_args()
-
-    rss_path = _ROOT / args.rss_file
+def _clean_rss(rss_path: Path, days: int, now_dt: datetime) -> int:
+    """清理单个 RSS 文件中过期的条目，返回删除数量。"""
     if not rss_path.exists():
-        print("[DONE] rss file not found, skip")
-        return
+        return 0
 
     tree = ET.parse(str(rss_path))
     root = tree.getroot()
     channel = root.find("channel")
     if channel is None:
-        print("[DONE] invalid rss: missing channel")
-        return
+        return 0
 
-    now_dt = datetime.now(timezone.utc)
-    if args.now:
-        now_dt = datetime.strptime(args.now.strip(), "%a, %d %b %Y %H:%M:%S %z").astimezone(timezone.utc)
-
-    time_limit = now_dt - timedelta(days=args.days)
+    time_limit = now_dt - timedelta(days=days)
 
     items = list(channel.findall("item"))
     removed = 0
@@ -70,7 +58,33 @@ def main() -> None:
         last.text = now_dt.astimezone(timezone(timedelta(hours=8))).strftime("%a, %d %b %Y %H:%M:%S %z")
 
     tree.write(str(rss_path), encoding="utf-8", xml_declaration=True)
-    print(f"[DONE] removed={removed} ; rss_updated={rss_path}")
+    return removed
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--rss_file", default="arxiv.rss")
+    ap.add_argument("--rss_relevant", default="SpatialAI.rss")
+    ap.add_argument("--rss_hf", default="Huggingface.rss")
+    ap.add_argument("--days", type=int, default=14, help="删除多少天之前的条目")
+    ap.add_argument("--now", default=None, help="统一的当前时间（RFC2822），用于与调度器对齐")
+    args = ap.parse_args()
+
+    now_dt = datetime.now(timezone.utc)
+    if args.now:
+        now_dt = datetime.strptime(args.now.strip(), "%a, %d %b %Y %H:%M:%S %z").astimezone(timezone.utc)
+
+    total_removed = 0
+    for rss_name in (args.rss_file, args.rss_relevant, args.rss_hf):
+        rss_path = _ROOT / rss_name
+        removed = _clean_rss(rss_path, args.days, now_dt)
+        if removed:
+            print(f"[DONE] removed={removed} ; rss_updated={rss_path}")
+        else:
+            print(f"[DONE] no items to remove ; rss={rss_path}")
+        total_removed += removed
+
+    print(f"[DONE] total_removed={total_removed}")
 
 
 if __name__ == "__main__":

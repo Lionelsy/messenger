@@ -1,6 +1,8 @@
 .env
 storage
 arxiv.rss
+SpatialAI.rss
+Huggingface.rss
 *__pycache__*
 messenger
 cron-run_daily.log

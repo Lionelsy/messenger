@@ -44,6 +44,32 @@ def build_user_prompt_step03_summary_cn(summary: str) -> str:
 """.strip()
 
 
+# 基础摘要的 7 个字段（逐一提问时使用）
+SUMMARY_FIELD_KEYS = ["总结", "背景", "目的", "方法", "主要发现", "结论", "翻译"]
+
+
+def build_user_prompt_step03_summary_single_field_cn(summary: str, field_name: str) -> str:
+    """
+    基础摘要（单字段版）：
+    - 每次只问 1 个字段，降低一次性多字段输出导致的 JSON 解析失败风险
+    - 输出纯文本答案；程序侧自行构造键值对
+    """
+    s = (summary or "").replace("\n", " ").strip()
+    return f"""
+请阅读以下论文摘要，并用中文回答一个关于该摘要的问题。
+
+要求：
+- 请使用简洁、准确、通俗的中文解释，并尽量避免使用公式、符号或缩写。
+- 如果摘要里没有提到相关内容，请写 "unknown"，不要编造。
+- 回答尽量简短（建议 2-4 句），不要列长清单。
+- 只输出答案纯文本（不要 JSON、不要 markdown、不要代码块、不要任何额外文字）。
+
+摘要：{s}
+
+请回答："{field_name}"（即针对该摘要的"{field_name}"要点）
+""".strip()
+
+
 def build_user_prompt_step03_relevance_cn(summary: str, interest_description: str) -> str:
     """
     参考 Step03_query_GPT.py：只判断是否高度相关，输出“是/否”。

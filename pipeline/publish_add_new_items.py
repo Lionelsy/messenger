@@ -217,8 +217,12 @@ def main() -> None:
     ap.add_argument("--master_csv", default="storage/papers_master.csv")
     ap.add_argument("--base_dir", default="storage/analysis/base")
     ap.add_argument("--deep_dir", default="storage/analysis/deep")
-    ap.add_argument("--rss_file", default="arxiv.rss")
+    ap.add_argument("--rss_file", default="arxiv.rss", help="不相关论文的 RSS 文件")
+    ap.add_argument("--rss_relevant", default="SpatialAI.rss", help="相关论文的 RSS 文件")
+    ap.add_argument("--rss_hf", default="Huggingface.rss", help="HuggingFace 来源的非相关论文 RSS 文件")
     ap.add_argument("--feed_title", default="Arxiv论文推荐")
+    ap.add_argument("--feed_title_relevant", default="SpatialAI 论文推荐")
+    ap.add_argument("--feed_title_hf", default="HuggingFace 论文推荐")
     ap.add_argument("--feed_link", default="https://arxiv.org/")
     ap.add_argument("--feed_description", default="Arxiv论文推荐")
     ap.add_argument("--run_pubdate", default=None, help="统一发布时间（RFC2822），用于与调度器对齐")
@@ -230,6 +234,8 @@ def main() -> None:
     base_dir = Path(args.base_dir)
     deep_dir = Path(args.deep_dir)
     rss_path = _ROOT / args.rss_file
+    rss_relevant_path = _ROOT / args.rss_relevant
+    rss_hf_path = _ROOT / args.rss_hf
 
     rows = _read_master_rows(master_csv)
     if not rows:
@@ -264,10 +270,27 @@ def main() -> None:
         run_dt=run_dt,
     )
 
+    tree_r, channel_r, existing_ids_r = _load_or_init_rss(
+        rss_relevant_path,
+        feed_title=args.feed_title_relevant,
+        feed_link=args.feed_link,
+        feed_description=args.feed_description,
+        run_dt=run_dt,
+    )
+
+    tree_hf, channel_hf, existing_ids_hf = _load_or_init_rss(
+        rss_hf_path,
+        feed_title=args.feed_title_hf,
+        feed_link=args.feed_link,
+        feed_description=args.feed_description,
+        run_dt=run_dt,
+    )
+
+    all_existing_ids = existing_ids | existing_ids_r | existing_ids_hf
     will_publish = []
     for r in todo:
         pid = (r.get("paperID") or "").strip()
-        if not pid or pid in existing_ids:
+        if not pid or pid in all_existing_ids:
             continue
         base_path = base_dir / f"{pid}.json"
         if not base_path.exists():
@@ -283,7 +306,7 @@ def main() -> None:
     published_n = 0
     for r in todo:
         pid = (r.get("paperID") or "").strip()
-        if not pid or pid in existing_ids:
+        if not pid or pid in all_existing_ids:
             continue
 
         base_path = base_dir / f"{pid}.json"
@@ -301,8 +324,17 @@ def main() -> None:
         row_is_relevant = _is_true(r.get("relevance", ""))
         is_relevant = row_is_relevant or base_is_relevant
 
+        # 三分流：相关一律进 SpatialAI；不相关按来源分到 Huggingface.rss 或 arxiv.rss
+        src_set = set((r.get("sources") or "").split(";"))
+        if is_relevant:
+            channel_target, ids_target = channel_r, existing_ids_r
+        elif "hf" in src_set:
+            channel_target, ids_target = channel_hf, existing_ids_hf
+        else:
+            channel_target, ids_target = channel, existing_ids
+
         _add_item(
-            channel,
+            channel_target,
             pid,
             base,
             deep,
@@ -310,31 +342,39 @@ def main() -> None:
             is_relevant=is_relevant,
             sources=(r.get("sources") or ""),
         )
-        existing_ids.add(pid)
+        ids_target.add(pid)
 
         r["publish"] = "True"
         published_n += 1
 
     _set_last_build_date(channel, run_dt=run_dt)
-    rss_path.parent.mkdir(parents=True, exist_ok=True)
-    # 写出时把每个 <description> 包成 CDATA，让 RSS 阅读器按 HTML 渲染
-    xml_bytes = ET.tostring(tree.getroot(), encoding="utf-8")
-    dom = minidom.parseString(xml_bytes)
-    for node in dom.getElementsByTagName("description"):
-        # 取当前文本内容（minidom 会把 &lt;h2&gt; 还原成 <h2>）
-        txt = ""
-        if node.firstChild is not None and node.firstChild.nodeType == node.firstChild.TEXT_NODE:
-            txt = node.firstChild.data
-            node.removeChild(node.firstChild)
-        node.appendChild(dom.createCDATASection(txt))
+    _set_last_build_date(channel_r, run_dt=run_dt)
+    _set_last_build_date(channel_hf, run_dt=run_dt)
 
-    rss_path.parent.mkdir(parents=True, exist_ok=True)
-    with rss_path.open("wb") as f:
-        f.write(b"<?xml version='1.0' encoding='utf-8'?>\n")
-        f.write(dom.documentElement.toxml(encoding="utf-8"))
+    def _write_rss_file(rss_file: Path, tree_obj: ET.ElementTree) -> None:
+        """写出 RSS 文件，把 <description> 包成 CDATA。"""
+        rss_file.parent.mkdir(parents=True, exist_ok=True)
+        xml_bytes = ET.tostring(tree_obj.getroot(), encoding="utf-8")
+        dom = minidom.parseString(xml_bytes)
+        for node in dom.getElementsByTagName("description"):
+            txt = ""
+            if node.firstChild is not None and node.firstChild.nodeType == node.firstChild.TEXT_NODE:
+                txt = node.firstChild.data
+                node.removeChild(node.firstChild)
+            node.appendChild(dom.createCDATASection(txt))
+        with rss_file.open("wb") as f:
+            f.write(b"<?xml version='1.0' encoding='utf-8'?>\n")
+            f.write(dom.documentElement.toxml(encoding="utf-8"))
+
+    _write_rss_file(rss_path, tree)
+    _write_rss_file(rss_relevant_path, tree_r)
+    _write_rss_file(rss_hf_path, tree_hf)
 
     _write_master_rows(master_csv, rows)
-    print(f"[DONE] rss_updated={rss_path} ; published={published_n} ; master_updated={master_csv}")
+    print(
+        f"[DONE] rss={rss_path} rss_relevant={rss_relevant_path} rss_hf={rss_hf_path} ; "
+        f"published={published_n} ; master_updated={master_csv}"
+    )
 
 
 if __name__ == "__main__":

@@ -30,10 +30,11 @@ if str(_ROOT) not in sys.path:
 
 from config.ai import get_ai_clients
 from config.prompt import (
-    SYSTEM_CN_JSON,
+    SYSTEM_CN_PLAIN,
     SYSTEM_CN_RELEVANCE,
+    SUMMARY_FIELD_KEYS,
     build_user_prompt_step03_relevance_cn,
-    build_user_prompt_step03_summary_cn,
+    build_user_prompt_step03_summary_single_field_cn,
 )
 
 def _parse_json_obj(text: str) -> Dict[str, Any]:
@@ -233,13 +234,17 @@ def analyze_one(paper_id: str, interest_description: str, sleep_s: float = 0.0, 
     meta = fetch_arxiv_metadata(paper_id, client=arxiv_client)
     abstract = meta.get("abstract", "")
 
-    # Step 1: 结构化摘要（JSON）
-    messages_summary = [
-        {"role": "system", "content": SYSTEM_CN_JSON},
-        {"role": "user", "content": build_user_prompt_step03_summary_cn(abstract)},
-    ]
-    summary_text = llm.chat_text(messages_summary, response_json=True)
-    summary_obj = _parse_json_obj_relaxed(summary_text)
+    # Step 1: 结构化摘要 —— 逐字段询问，每次只问 1 个字段，输出纯文本
+    summary_obj: Dict[str, str] = {}
+    for field in SUMMARY_FIELD_KEYS:
+        messages = [
+            {"role": "system", "content": SYSTEM_CN_PLAIN},
+            {"role": "user", "content": build_user_prompt_step03_summary_single_field_cn(abstract, field)},
+        ]
+        answer = (llm.chat_text(messages) or "").strip()
+        summary_obj[field] = answer if answer else "unknown"
+        if sleep_s > 0:
+            time.sleep(sleep_s)
 
     # Step 2: 相关性判断（是/否）
     messages_rel = [
