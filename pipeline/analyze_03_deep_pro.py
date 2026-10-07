@@ -103,7 +103,7 @@ def main() -> None:
     ap.add_argument("--master_csv", default="storage/papers_master.csv")
     ap.add_argument("--parse_dir", default="storage/papers/parse")
     ap.add_argument("--out_dir", default="storage/analysis/deep")
-    ap.add_argument("--max_chars", type=int, default=20000)
+    ap.add_argument("--max_chars", type=int, default=12000)
     ap.add_argument("--sleep", type=float, default=0.1)
     ap.add_argument("--workers", type=int, default=2, help="并发线程数")
     ap.add_argument("--limit", type=int, default=0)

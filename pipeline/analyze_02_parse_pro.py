@@ -8,6 +8,7 @@ import sys
 import argparse
 import csv
 import json
+import os
 import time
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -192,11 +193,15 @@ def main() -> None:
     ap.add_argument("--pdf_dir", default="storage/papers/pdfs")
     ap.add_argument("--parse_dir", default="storage/papers/parse")
     ap.add_argument("--sleep", type=float, default=0.5)
+    # 默认并发：cloud（官方 API，异步提交+轮询，等待时间长且配额按页计）为 2；
+    # local（自建服务，GPU 争抢）保守为 1
+    default_workers = 2 if os.getenv("OCR_PROVIDER", "cloud").strip().lower() == "cloud" else 1
     ap.add_argument(
         "--workers",
         type=int,
-        default=1,
-        help="paper-level threads (download+parse in one worker). Keep small to avoid reCAPTCHA / GPU contention.",
+        default=default_workers,
+        help="paper-level threads (download+parse in one worker). cloud 默认 2 / local 默认 1，"
+             "避免 reCAPTCHA / GPU contention. 云端注意每日 1000 页额度。",
     )
     args = ap.parse_args()
 

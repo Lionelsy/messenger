@@ -33,7 +33,9 @@ SERVICES = {
             "--host", "0.0.0.0",
             "--port", "8000",
             "--enforce-eager",
-            "--max-model-len", "4096",
+            # 上下文窗口：深度分析输入约 12000 字符（≈1万+ tokens）+ 输出 max_tokens 8192，
+            # 4096 会直接超窗；若显存不足可改为 16384 并同步调小 analyze_03 --max_chars
+            "--max-model-len", "32768",
             "--gpu-memory-utilization", "0.85",
             "--disable-log-stats"
         ],
