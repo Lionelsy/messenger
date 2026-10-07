@@ -352,7 +352,12 @@ def main() -> None:
     _set_last_build_date(channel_hf, run_dt=run_dt)
 
     def _write_rss_file(rss_file: Path, tree_obj: ET.ElementTree) -> None:
-        """写出 RSS 文件，把 <description> 包成 CDATA。"""
+        """写出 RSS 文件，把 <description> 包成 CDATA。
+
+        CDATA 段内不允许出现字面 "]]>"（LLM 输出代码片段时可能出现，minidom 会抛
+        ValueError 导致发布阶段卡死）；若文本含该序列，拆成多个相邻 CDATA 段
+        （XML 中相邻 CDATA 段与单段内容等价），保证不崩溃且语义无损。
+        """
         rss_file.parent.mkdir(parents=True, exist_ok=True)
         xml_bytes = ET.tostring(tree_obj.getroot(), encoding="utf-8")
         dom = minidom.parseString(xml_bytes)
@@ -361,7 +366,14 @@ def main() -> None:
             if node.firstChild is not None and node.firstChild.nodeType == node.firstChild.TEXT_NODE:
                 txt = node.firstChild.data
                 node.removeChild(node.firstChild)
-            node.appendChild(dom.createCDATASection(txt))
+            if "]]>" in txt:
+                parts = txt.split("]]>")
+                node.appendChild(dom.createCDATASection(parts[0]))
+                for p in parts[1:]:
+                    node.appendChild(dom.createCDATASection("]]"))
+                    node.appendChild(dom.createCDATASection(">" + p))
+            else:
+                node.appendChild(dom.createCDATASection(txt))
         with rss_file.open("wb") as f:
             f.write(b"<?xml version='1.0' encoding='utf-8'?>\n")
             f.write(dom.documentElement.toxml(encoding="utf-8"))

@@ -30,6 +30,30 @@ fi
 
 set -a; source .env; set +a
 
+# 本地局域网服务（LLM/MinerU）请求不绕道系统代理（若 shell 设置了 http_proxy）
+# 保留用户已有的大写和小写排除项
+export NO_PROXY="192.168.10.2,127.0.0.1,localhost${NO_PROXY:+,$NO_PROXY}${no_proxy:+,$no_proxy}"
+export no_proxy="$NO_PROXY"
+
+# --- 服务预检：LLM/OCR 配置不可用时提前失败，避免整夜空转后静默零产出 ---
+if [[ "${LLM_PROVIDER:-zhipu}" == "openai_compat" && -n "${LLM_BASE_URL:-}" ]]; then
+  # /v1/models 在配置了 key 的端点上返回 401（需鉴权），因此带上 Bearer 头
+  _LLM_AUTH=()
+  if [[ -n "${LLM_API_KEY:-}" ]]; then
+    _LLM_AUTH=(-H "Authorization: Bearer ${LLM_API_KEY}")
+  fi
+  if ! curl -sf --connect-timeout 10 --max-time 20 "${_LLM_AUTH[@]}" "${LLM_BASE_URL%/}/models" > /dev/null 2>&1; then
+    echo "[FATAL] LLM 服务不可达: ${LLM_BASE_URL%/}/models（curl 失败）"
+    echo "[HINT] 请先启动 LLM 服务（vLLM 等），或检查 LLM_BASE_URL 配置"
+    exit 1
+  fi
+  echo "[INFO] LLM 预检通过: ${LLM_BASE_URL%/}/models"
+fi
+if [[ "${OCR_PROVIDER:-cloud}" == "cloud" && -z "${MINERU_KEY:-}" ]]; then
+  echo "[FATAL] OCR_PROVIDER=cloud 但 MINERU_KEY 为空，请检查 .env"
+  exit 1
+fi
+
 "$PY" -V
 "$PY" -c "import sys; print('[INFO] exe:', sys.executable)"
 
